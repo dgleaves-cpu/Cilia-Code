@@ -1,0 +1,13 @@
+.venv/
+.venv-channel2/
+__pycache__/
+*.pyc
+*.pt
+
+data/
+outputs/
+checkpoints/
+logs/
+tmp/
+
+.DS_Store

@@ -1,0 +1,13 @@
+numpy>=1.24
+pandas>=2.0
+tifffile>=2024.2.12
+scikit-image>=0.22
+Pillow>=10.0
+tqdm>=4.66
+torch>=2.2
+matplotlib>=3.8
+fastapi>=0.110
+uvicorn>=0.27
+python-multipart>=0.0.9
+pyngrok>=7.1
+requests>=2.31
