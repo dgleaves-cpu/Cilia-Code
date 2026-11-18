@@ -412,6 +412,13 @@ def load_unet_model(model_path: str | Path = MODEL_PATH, device: torch.device | 
             f"This channel-2 notebook requires a one-channel U-Net, but {model_path} "
             f"was saved with in_channels={in_channels}. Retrain with CHANNEL_INDEX=1."
         )
+    checkpoint_channel_index = checkpoint.get("channel_index")
+    if checkpoint_channel_index != CHANNEL_INDEX:
+        raise ValueError(
+            f"This app only accepts checkpoints trained on zero-based channel index {CHANNEL_INDEX} "
+            f"(the second image channel), but {model_path} records channel_index={checkpoint_channel_index!r}. "
+            "Retrain the model with the second-channel-only workflow."
+        )
     model = UNet(in_channels=1).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
@@ -437,11 +444,14 @@ def predict_preprocessed(
 
 
 def png_bytes_from_mask(mask: np.ndarray) -> bytes:
+    """Encode a binary cilia mask as red cilia on a white background."""
     import io
 
-    mask_uint8 = (mask.astype(bool).astype(np.uint8) * 255)
+    mask_bool = mask.astype(bool)
+    rgb = np.full((*mask_bool.shape, 3), 255, dtype=np.uint8)
+    rgb[mask_bool] = (214, 39, 40)
     buffer = io.BytesIO()
-    Image.fromarray(mask_uint8, mode="L").save(buffer, format="PNG")
+    Image.fromarray(rgb, mode="RGB").save(buffer, format="PNG")
     return buffer.getvalue()
 
 
@@ -460,4 +470,3 @@ def png_bytes_from_overlay(channel_hwc: np.ndarray, mask: np.ndarray, alpha: flo
     buffer = io.BytesIO()
     Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), mode="RGB").save(buffer, format="PNG")
     return buffer.getvalue()
-

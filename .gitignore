@@ -10,4 +10,11 @@ checkpoints/
 logs/
 tmp/
 
+.build/
+.chart-data-*/
+.codex-finalizer/
+*_flows.tif
+*.pt.json
+tests/__pycache__/
+
 .DS_Store
