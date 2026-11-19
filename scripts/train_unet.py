@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+from cilia_detector.channel2_pipeline import CHANNEL_INDEX
 from cilia_detector.model import UNet, dice_loss
 
 
@@ -51,6 +52,8 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     dataset = PatchDataset(args.patch_dir)
+    with np.load(dataset.paths[0]) as first_patch:
+        image_size = tuple(int(value) for value in first_patch["image"].shape[-2:])
     val_size = max(1, int(len(dataset) * args.val_frac))
     train_size = len(dataset) - val_size
     train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42))
@@ -97,6 +100,8 @@ def main() -> None:
                 {
                     "model_state": model.state_dict(),
                     "in_channels": 1,
+                    "image_size": image_size,
+                    "channel_index": CHANNEL_INDEX,
                     "threshold": 0.5,
                     "best_val_loss": best_val,
                 },

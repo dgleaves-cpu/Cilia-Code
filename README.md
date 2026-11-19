@@ -1,20 +1,22 @@
-# Cilia Segmentation
+# Cilia Detector
 
-Starter pipeline for denoising the second cilia-marker channel and training a one-channel U-Net to segment cilia.
+Local tools for training, evaluating, and using a PyTorch U-Net to segment cilia in multichannel microscopy images. The project is designed around one explicit data rule: the model uses **only the second image channel** (zero-based `CHANNEL_INDEX = 1`) for training, testing, prediction, and display.
 
-The reference image stack is an ImageJ TIFF with five planes:
+The primary interface is a local browser app for researchers. Command-line tools, a Colab notebook, and a lightweight API are included for reproducible or automated workflows.
 
-| Plane | Biological channel | Use in this pipeline |
-| --- | --- | --- |
-| 1 | Axoneme / acetylated tubulin | Not used by the revised U-Net input |
-| 2 | Ciliary membrane / ARL13B | Only U-Net input channel, denoised; primary label source |
-| 3 | DAPI nuclei | Optional future cell-cilium assignment |
-| 4 | mScarlet-KIF3B motor | Downstream intensity classification |
-| 5 | mNeonGreen-KIF3A motor | Downstream intensity classification |
+## What It Does
 
-The uploaded CSV/Numbers file contains measurements, while the analyzed TIFF contains ImageJ overlay ROIs. `prepare_dataset.py` extracts those ROIs into binary masks and saves training patches.
+- Trains or continues training a one-channel binary cilia-segmentation U-Net from paired images and masks.
+- Predicts masks for one or more uploaded multichannel images, including multi-image TIFF files.
+- Tests a saved model against held-out masks with pixel, object-level, threshold-sweep, ROC/AUC, and precision-recall metrics.
+- Analyzes binary masks to measure cilia morphology and create exploratory t-SNE plots.
+- Exports organized masks, CSV files, plots, and failure-review figures under `outputs/app/`.
 
-## Local Setup
+All U-Net inputs have shape `(height, width, 1)`. Other image channels are never merged, averaged, normalized, displayed, or sent to the model.
+
+## Quick Start
+
+### 1. Create an environment
 
 ```bash
 python3 -m venv .venv
@@ -22,211 +24,119 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-On Apple Silicon, install PyTorch using the current command from pytorch.org if the generic wheel is not selected automatically.
+Install the PyTorch build appropriate for your hardware if the default package installation does not provide one. Apple Silicon machines can use the MPS backend when it is available; the app can fall back to CPU when necessary.
 
-### Optional pretrained comparison models
-
-The browser app can compare a saved Channel-2 U-Net against pretrained Cellpose-SAM v2 and Omnipose models. Install those optional backends once in the same environment as the app:
-
-```bash
-bash scripts/install_model_comparison_backends.sh
-```
-
-The first comparison that selects a pretrained model may download model weights, so it requires an internet connection once. Afterwards, cached weights can be used offline. These pretrained models are exploratory baselines, not cilia-specific replacements for your labeled-data U-Net.
-
-## Prepare Training Patches
-
-Put your analyzed TIFFs in one folder. The U-Net pipeline extracts only zero-based channel index `1`, meaning the second channel. If you have matching CSV files, put them in another folder using the same stem, for example:
-
-Regenerate patches after this channel-2-only update. Older `data/patches_*` folders created by the previous two-channel workflow should not be reused for one-channel training.
-
-```text
-data/raw/CS02-001-analyzed-80cells.tif
-data/results/CS02-001-results.csv
-```
-
-Then run:
-
-```bash
-python scripts/prepare_dataset.py \
-  --image-dir data/raw \
-  --out-dir data/patches \
-  --patch-size 256 \
-  --stride 128
-```
-
-For the uploaded sample:
-
-```bash
-python scripts/prepare_dataset.py \
-  --image-dir "/Users/davingleaves/Downloads" \
-  --glob "CS02-001-analyzed-80cells.tif" \
-  --out-dir data/patches_sample
-```
-
-## Train U-Net
-
-```bash
-python scripts/train_unet.py \
-  --patch-dir data/patches \
-  --out checkpoints/cilia_unet.pt \
-  --epochs 80 \
-  --batch-size 8
-```
-
-The model is implemented in PyTorch in [cilia_detector/model.py](cilia_detector/model.py). It uses only denoised zero-based channel index `1` as input and learns a one-channel binary cilium mask from the channel-2 ImageJ cilium ROIs.
-
-## Predict On New Images
-
-```bash
-python scripts/predict.py \
-  --checkpoint checkpoints/cilia_unet.pt \
-  --image data/raw/CS02-021.tif \
-  --channel-index 1 \
-  --out outputs/CS02-021_predicted_cilia_mask.tif
-```
-
-For a folder of images:
-
-```bash
-python scripts/batch_predict.py \
-  --checkpoint checkpoints/cilia_unet.pt \
-  --image-dir data/raw \
-  --glob "CS02-*-analyzed*.tif" \
-  --out-dir outputs/unet_predictions
-```
-
-## Export Existing ROI Labels
-
-The analyzed TIFFs already contain ImageJ overlay ROIs. Export those masks and overlays before training so you can inspect the labels:
-
-```bash
-python scripts/export_roi_masks.py \
-  --image-dir data/raw \
-  --glob "CS02-*-analyzed*.tif" \
-  --channel-index 1 \
-  --out-dir outputs/roi_reference
-```
-
-## Colab Notebook And API
-
-The full beginner-friendly notebook is [channel2_cilia_unet_colab.ipynb](notebooks/channel2_cilia_unet_colab.ipynb). It includes:
-
-- `IMAGE_DIR`, `MASK_DIR`, `IMAGE_SIZE`, `CHANNEL_INDEX = 1`, and `MODEL_PATH` configuration variables.
-- A paired image/mask loader that validates matching filename stems.
-- One-channel PyTorch U-Net training with BCE + Dice loss, Dice coefficient, and IoU.
-- Visualizations limited to `Channel 2 Input`, `True Cilia Mask`, and `Predicted Cilia Mask`.
-- A FastAPI service with `GET /health`, `POST /predict`, and `POST /train`.
-
-## Local Browser App
-
-Run the app when you want a point-and-click workflow for prediction, testing, training, and ROI label inspection:
+### 2. Start the browser app
 
 ```bash
 python scripts/cilia_app.py
 ```
 
-Then open:
+Open <http://127.0.0.1:8000> in a browser. If that port is already in use, start the app on another port:
 
-```text
-http://127.0.0.1:8000
+```bash
+python -m uvicorn scripts.cilia_app:app --host 127.0.0.1 --port 8001
 ```
 
-The app includes tabs for:
+The browser app is the recommended starting point. It provides these workflows:
 
-- Status: checks the selected model, project folders, device, and supported formats.
-- Predict: uploads one new multichannel image and outputs a predicted cilia mask, channel-2 overlay, and object table when possible.
-- Test: uploads a ZIP with paired `images/` and `masks/` folders (or `test_images/` and `test_masks/`) and reports Dice and IoU.
-- Analyze Masks: uploads a ZIP of binary manual cilia masks and creates mask-only morphology measurements plus exploratory t-SNE plots for cilia length and curvature. It does not run a model or use microscopy-image channels.
-- Compare Labkit + U-Net: runs the selected Channel-2-only U-Net on a paired test ZIP and compares its binary masks with an aligned Labkit TIFF export, manual masks, and object-level measurements.
-- Test Cellpose/Omnipose: tests exactly one selected pretrained or custom Cellpose/Omnipose model against held-out masks, with its own shared pixel and object metrics plus failure-review image.
-- Compare Models: runs one unchanged paired test ZIP through one or two saved Channel-2 U-Net checkpoints, pretrained Cellpose-SAM v2 and Omnipose baselines, plus optional custom Cellpose and Omnipose checkpoints. It shows shared pixel Dice/IoU and object precision/recall/F1 side by side, with a per-model failure-review image. It never trains or changes any checkpoint.
-- Improve Model: runs a source-image-disjoint optimization experiment. It offers a clean baseline followed by a focused false-positive profile with more background patches and BCE + Tversky loss. It selects thresholds on validation images only and preserves all existing checkpoints.
-- Train From Masks: trains a one-channel U-Net from paired multichannel images and binary cilia masks using full-resolution patches by default.
-- Train Omnipose: fine-tunes a separate one-channel Omnipose instance-segmentation model from the same paired cilia masks. It uses only Channel 2, runs on CPU for stable Mac training, saves a separate model file and loss history, and can be added to Compare Models by its saved path.
-- Train Cellpose: fine-tunes the pretrained Cellpose-SAM v2 instance-segmentation model from the same paired cilia masks. It reads only Channel 2, runs on CPU for stable Mac training, saves a separate model file and loss history, and can be added to Compare Models by its saved path. The installed Cellpose-SAM release requires a pretrained starting model. It internally pads the single selected input plane with zero-filled channels required by its architecture; this does not read, merge, or display any other microscopy channel.
-- Train From ImageJ ROIs: extracts embedded ImageJ/FIJI overlay ROIs from analyzed TIFFs, creates mask patches, and trains.
-- Extract ROI Masks: exports ROI masks and overlays so you can inspect whether the TIFF labels are being read correctly.
+| Tab | Purpose |
+| --- | --- |
+| **Status** | Shows device, checkpoint, folders, and supported formats. |
+| **Predict** | Produces masks for one or more multichannel images and exports collective morphology/t-SNE outputs. |
+| **Test** | Evaluates a saved U-Net against paired held-out images and masks. |
+| **Analyze Masks** | Measures binary masks and creates exploratory morphology/t-SNE outputs without running a model. |
+| **Train From Masks** | Trains or continues training from paired multichannel images and manual binary masks. |
 
-Training runs in the background, so the page stays responsive and shows the current patch-preparation stage, each completed epoch's loss/Dice/IoU, percentage, elapsed time, and the finished plots.
+## Data Conventions
 
-The custom Omnipose workflow is separate from U-Net training. It starts from a single-channel Omnipose base model by default, or can train from scratch. Its model learns connected cilium instances rather than a U-Net probability map, so add its saved path in **Compare Models** to evaluate it using the same pixel Dice/IoU and object metrics as the other methods.
+### Training and test data
 
-The custom Cellpose workflow is similarly separate from U-Net training. It fine-tunes Cellpose-SAM from connected cilia objects in your masks, records the training and validation loss history, and saves a checkpoint path that can be pasted into **Compare Models**. Cellpose and Omnipose are instance-segmentation methods, so the comparison reports shared binary-mask and object metrics rather than U-Net probability-map ROC/AUC or average precision.
-
-For a reliable experiment, use **Improve Model** before the regular Test screen. The optimization flow holds out three complete source images before it creates patches, keeps validation unaugmented, records the experiment settings and selected threshold, and produces threshold, ROC, precision-recall, and false-positive analysis figures. The Test screen should be reserved for final/exploratory evaluation rather than choosing a threshold.
-
-Training ZIPs with prepared masks can use either `images/` and `masks/`, or `training_images/` and `training_masks/`:
+Images and masks are paired by **filename stem**. Extensions may differ, but the names before the extension must match. For example, `sample_001.tif` pairs with `sample_001.png`.
 
 ```text
-training_pairs.zip
+paired_cilia_data.zip
   images/
-    CS02-001.tif
-    CS02-002.tif
+    sample_001.tif
+    sample_002.tif
   masks/
-    CS02-001.tif
-    CS02-002.tif
+    sample_001.tif
+    sample_002.tif
 ```
 
-For **Analyze Masks**, use the mask folder by itself. A ZIP containing only supported mask image files also works:
+The app also accepts `training_images/` with `training_masks/`, and `test_images/` with `test_masks/`, when those are the folder names inside a ZIP. It reports missing image/mask pairs before training or testing begins.
+
+Requirements:
+
+- **Images:** supported TIFF/TIF, NPY, NPZ, PNG, JPG, or JPEG files. Multichannel training, testing, and prediction images must contain at least two channels and use a recognizable HWC or CHW layout. TIFF prediction uploads can include several images in a time/scene series.
+- **Input channel:** only channel index `1`, the second channel, is selected. It is normalized and processed independently.
+- **Masks:** 2D binary masks where cilia are nonzero (`1`) and background is zero. The app converts nonzero mask values to binary cilia labels.
+- **Splits:** keep test images separate from images used for model selection and training.
+
+### Model checkpoints
+
+U-Net checkpoints are PyTorch `.pt` files. The app saves metadata that records the one-channel input, image size, threshold, and `channel_index = 1`. A checkpoint trained on a different channel is intentionally rejected to prevent accidental use of the wrong microscopy signal.
+
+Store checkpoints under `checkpoints/`. They are excluded from Git because they can be large and may contain study-specific data.
+
+## Outputs
+
+Each browser-app run receives a timestamped directory below `outputs/app/`. Depending on the workflow, it can contain:
+
+- predicted binary masks and a ZIP/manifest for batch prediction;
+- training history CSV plus loss and validation-metric plots;
+- test metrics, threshold sweep, ROC/AUC, precision-recall/AP, and failure-review figures;
+- mask morphology tables and t-SNE coordinate/plot files.
+
+Mask visualizations use a white background with red cilia. Testing and failure-review figures distinguish true-positive, false-positive, and false-negative objects with circles.
+
+## Repository Map
 
 ```text
-cilia_masks.zip
-  masks/
-    CS02-001.tif
-    CS02-002.tif
+cilia_detector/        Core image I/O, channel selection, U-Net, morphology, and helpers
+scripts/               Browser app, API, command-line tools, and cluster example
+notebooks/             Google Colab notebook
+tests/                 Automated regression tests
+docs/                  Architecture and command-line reference
+checkpoints/           Local model checkpoints (created locally; ignored by Git)
+outputs/               Local run artifacts (created locally; ignored by Git)
 ```
 
-For **Compare Labkit + U-Net**, upload the same paired TIFF test ZIP used on the Test screen and a Labkit binary TIFF export. A single TIFF is used for a one-image test set; for multiple images, export a TIFF stack with one binary page per image. The pages must follow the same alphabetical order as the image filenames in the test ZIP. The results include each method's Dice/IoU/object metrics against manual masks, their direct agreement, a per-image CSV, and aligned visual reviews.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code map and [docs/COMMAND_LINE_TOOLS.md](docs/COMMAND_LINE_TOOLS.md) for the non-browser workflows.
 
-ROI training ZIPs should contain analyzed `.tif` or `.tiff` files with cilia ROIs assigned to ImageJ channel `2`. All app model input uses only zero-based channel index `1`, meaning the second image channel. The app does not fall back to ROI labels from another channel, and it rejects a checkpoint that does not record `channel_index = 1`.
+## Command-Line and API Workflows
 
-For large images with tiny cilia labels, use the app's patch-based defaults instead of shrinking the whole image:
-
-```text
-Patch size: 512
-Stride: 256
-Minimum positive pixels: 3
-Background patches per positive patch: 1.0
-```
-
-This preserves small cilia masks from `2048 x 2048` images and gives the U-Net many local examples. A full `2048 x 2048` image resized to `256 x 256` can reduce a labeled cilium to only a few pixels, which usually leads to near-zero Dice.
-
-## Analysis Outputs
-
-The browser app saves every plot and its supporting CSV in the run's folder under `outputs/app/`:
-
-- Training saves `training_loss.png`, `validation_metrics.png`, and `training_history.csv`.
-- Testing saves pixel ROC/AUC and precision-recall/AP graphs from the manual test masks, plus the per-image Dice/IoU table. ROC uses a balanced sample for ranking; precision-recall uses weighted sampling to preserve the true cilia prevalence.
-- Testing also saves a threshold sweep for Dice/IoU, object-level precision/recall/F1 based on connected-object IoU matching, and a failure-review gallery ordered from the lowest Dice image upward. Each gallery image contains only Channel 2 Input, True Cilia Mask, and Predicted Cilia Mask.
-- Prediction and testing save cilium morphology measurements. With at least four measured objects, the app creates t-SNE plots colored by length and curvature proxy. The curvature proxy is tortuosity: skeleton path length divided by endpoint distance, where `1` is approximately straight and larger values are more curved.
-- Analyze Masks produces the same morphology CSV and t-SNE plots directly from your manual masks, along with a per-mask summary CSV. It is useful for checking the range and outliers in the label set before training.
-
-t-SNE is exploratory rather than a model-accuracy score. Use it to find groups or outliers for manual review, not as evidence that the model is accurate.
-
-For a fair U-Net/Cellpose/Omnipose comparison, upload a held-out TIFF test ZIP with the same structure as the training example above. The comparison workflow extracts, denoises, and passes only zero-based image channel `1` to every model. It reports only metrics all methods share: pixel Dice, pixel IoU, and connected-object precision, recall, and F1. Cellpose and Omnipose return instance masks rather than calibrated per-pixel probability maps, so ROC/AUC and average precision are not shown for those two methods.
-
-## Classify And Measure Cilia
-
-After prediction, classify connected cilia objects and measure support from channels 1, 2, 4, and 5:
+The browser app covers the normal local workflow. These optional tools are useful for scripting:
 
 ```bash
-python scripts/classify_cilia.py \
-  --image data/raw/CS02-021.tif \
-  --mask outputs/CS02-021_predicted_cilia_mask.tif \
-  --out outputs/CS02-021_cilia_objects.csv
+# Predict one image from a compatible Channel-2 U-Net checkpoint.
+python scripts/predict.py \
+  --checkpoint checkpoints/my_cilia_model.pt \
+  --image data/new_image.tif \
+  --out outputs/new_image_mask.tif
+
+# Run the standalone FastAPI service for notebooks or other clients.
+python scripts/serve_channel2_api.py
 ```
 
-The first-pass classifier is intentionally transparent: it flags likely cilia using object area, skeleton length, ARL13B intensity, axoneme support, and optional KIF3A/KIF3B intensity. Once you have enough verified predictions, replace the rule thresholds with a small object-level classifier.
-
-## ISAAC / SLURM
-
-Edit `scripts/isaac_train.slurm` for your module names and project path, then submit:
-
-```bash
-sbatch scripts/isaac_train.slurm
-```
+The standalone API exposes `GET /health`, `POST /predict`, and `POST /train`. Its `/train` route requires explicit epoch/batch-size values and `confirm_train=true`; it will not silently overwrite a model. See [COLAB_GUIDE.md](COLAB_GUIDE.md) and [docs/COMMAND_LINE_TOOLS.md](docs/COMMAND_LINE_TOOLS.md) for details.
 
 ## Google Colab
 
-Upload this folder to Drive, open [channel2_cilia_unet_colab.ipynb](notebooks/channel2_cilia_unet_colab.ipynb), and run the cells top to bottom. Colab already includes PyTorch on GPU runtimes, so installation may only need the image-processing and API packages. See [COLAB_GUIDE.md](COLAB_GUIDE.md) for a compact checklist.
+The complete notebook is [notebooks/channel2_cilia_unet_colab.ipynb](notebooks/channel2_cilia_unet_colab.ipynb). It includes paired data loading, one-channel U-Net training, metrics, prediction visualizations, and the standalone FastAPI service with a temporary public tunnel. The compact setup notes are in [COLAB_GUIDE.md](COLAB_GUIDE.md).
+
+## Development
+
+Run the regression suite from the repository root:
+
+```bash
+MPLCONFIGDIR=.build/matplotlib \
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+The tests cover the second-channel-only guarantee, TIFF stack handling, batch prediction export, mask-only analysis, and training-device recovery. See [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions.
+
+## Scientific Use Note
+
+Retraining requires manually prepared paired cilia masks. Prediction requires only new multichannel images. t-SNE is an exploratory morphology visualization, not a segmentation-accuracy metric; evaluate segmentation quality with held-out masks and the reported pixel/object metrics.

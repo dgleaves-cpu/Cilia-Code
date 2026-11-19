@@ -20,15 +20,18 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-python scripts/prepare_dataset.py \
-  --image-dir data/raw \
-  --out-dir data/patches \
-  --patch-size 256 \
-  --stride 128
+# This legacy cluster workflow trains from an existing directory of `.npz`
+# patches. Create the patches beforehand and set PATCH_DIR to that directory.
+# For paired full-resolution images and masks, the local browser app is the
+# recommended workflow because it creates patches during training.
+PATCH_DIR="${PATCH_DIR:-data/patches}"
+if ! compgen -G "${PATCH_DIR}/*.npz" > /dev/null; then
+  echo "No .npz patches found in ${PATCH_DIR}. Set PATCH_DIR before submitting."
+  exit 1
+fi
 
 python scripts/train_unet.py \
-  --patch-dir data/patches \
+  --patch-dir "${PATCH_DIR}" \
   --out checkpoints/cilia_unet.pt \
   --epochs 80 \
   --batch-size 16
-

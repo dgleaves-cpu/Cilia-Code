@@ -1,4 +1,3 @@
-"""Cilia denoising, segmentation, and object classification helpers."""
+"""Core helpers for Channel-2 cilia segmentation and morphology analysis."""
 
-__version__ = "0.1.0"
-
+__version__ = "0.3.0"

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Local browser app for Channel-2 cilia U-Net workflows.
+
+The module is organized into shared file/model helpers, reporting and analysis
+helpers, FastAPI routes, and the embedded single-page user interface. Reusable
+image preprocessing and U-Net operations live in :mod:`cilia_detector`.
+"""
 from __future__ import annotations
 
 from datetime import datetime

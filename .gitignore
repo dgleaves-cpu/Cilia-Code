@@ -3,6 +3,10 @@
 __pycache__/
 *.pyc
 *.pt
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.coverage
 
 data/
 outputs/
